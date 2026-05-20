@@ -5,7 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 cd "$ROOT_DIR"
 
-flutter build web --release --pwa-strategy=none
+mapfile -t FLUTTER_DEFINES < <("$ROOT_DIR/tool/flutter_env.sh")
+flutter build web --release --pwa-strategy=none "${FLUTTER_DEFINES[@]}"
 
 rm -rf "$ROOT_DIR/build/web/api"
 mkdir -p "$ROOT_DIR/build/web/api"

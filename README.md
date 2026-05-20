@@ -17,10 +17,17 @@ flutter pub get
 flutter test
 ```
 
+Create a local env file before running the app:
+
+```bash
+cp .env.example .env.local
+# Fill FIREBASE_* client config values in .env.local.
+```
+
 Run locally:
 
 ```bash
-flutter run
+flutter run -d chrome $(./tool/flutter_env.sh)
 ```
 
 ## Web Deployment
