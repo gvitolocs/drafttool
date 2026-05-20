@@ -14,7 +14,9 @@ Standalone tournament pairings and event helper for Pokemon, Magic, and Yu-Gi-Oh
 
 ```bash
 flutter pub get
+flutter analyze
 flutter test
+npm run check
 ```
 
 Create a local env file before running the app:
@@ -40,15 +42,13 @@ DraftTool is standalone. Deploy it separately from CardVault/Pokoin, ideally on 
 
 The existing `pokoin.com/makepair` route should redirect to `https://makepair.pokoin.com` when the standalone deployment is ready.
 
-## Getting Started
+## Workflows
 
-This project is a starting point for a Flutter application.
+Operational notes live in [`workflows/README.md`](workflows/README.md).
 
-A few resources to get you started if this is your first Flutter project:
+CI checks live in [`.github/workflows/checks.yml`](.github/workflows/checks.yml).
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Notes
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+DraftTool is not part of the CardVault/Pokoin Flutter app. Keep web deployment,
+mobile packaging, and tournament APIs independent.

@@ -19,7 +19,8 @@ void main() {
 
     await tester.pump();
     expect(find.text('DraftTool'), findsWidgets);
-    expect(find.text('New offline tournament'), findsOneWidget);
+    expect(find.text('Offline tournament'), findsOneWidget);
+    expect(find.text('Online tournament'), findsOneWidget);
   });
 }
 

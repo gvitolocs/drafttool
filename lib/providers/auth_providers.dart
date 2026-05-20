@@ -23,5 +23,7 @@ final pknBalanceProvider = StreamProvider<int>((ref) {
       .collection('balances')
       .doc(user.uid)
       .snapshots()
-      .map((snapshot) => (snapshot.data()?['availablePkn'] as num?)?.toInt() ?? 0);
+      .map(
+        (snapshot) => (snapshot.data()?['availablePkn'] as num?)?.toInt() ?? 0,
+      );
 });

@@ -18,19 +18,50 @@
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
+  <meta name="description" content="Create tournaments, play matches, and earn Pokoins.">
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="drafttool">
+  <meta name="apple-mobile-web-app-title" content="MakePair">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" href="favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" href="favicon.png">
 
-  <title>drafttool</title>
+  <title>MakePair</title>
   <link rel="manifest" href="manifest.json">
+  <script>
+    window.pokoinWallet = {
+      hasProvider: function () {
+        return typeof window.ethereum !== 'undefined';
+      },
+      openMetaMaskDapp: function () {
+        if (!/Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')) {
+          return false;
+        }
+        const target = `${window.location.host}${window.location.pathname}${window.location.search}${window.location.hash}`;
+        window.location.href = `https://metamask.app.link/dapp/${target}`;
+        return true;
+      },
+      requestAccounts: function () {
+        if (!window.ethereum) {
+          return Promise.reject('MetaMask or another EVM wallet is not available');
+        }
+        return window.ethereum.request({ method: 'eth_requestAccounts' });
+      },
+      signMessage: function (address, message) {
+        if (!window.ethereum) {
+          return Promise.reject('MetaMask or another EVM wallet is not available');
+        }
+        return window.ethereum.request({
+          method: 'personal_sign',
+          params: [message, address]
+        });
+      }
+    };
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>

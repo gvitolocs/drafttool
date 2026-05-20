@@ -1,11 +1,11 @@
 {
-    "name": "drafttool",
-    "short_name": "drafttool",
+    "name": "MakePair",
+    "short_name": "MakePair",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "Create tournaments, play matches, and earn Pokoins.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

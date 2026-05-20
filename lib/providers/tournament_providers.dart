@@ -26,12 +26,15 @@ class LocalTournamentController extends Notifier<DraftTournament?> {
     required TournamentFormat format,
     required List<String> playerNames,
   }) async {
-    final tournament = ref.read(tournamentEngineProvider).createOfflineTournament(
-          title: title,
-          game: game,
-          format: format,
-          playerNames: playerNames,
-        );
+    final engine = ref.read(tournamentEngineProvider);
+    final tournament = engine.startNextRound(
+      engine.createOfflineTournament(
+        title: title,
+        game: game,
+        format: format,
+        playerNames: playerNames,
+      ),
+    );
     await ref.read(localTournamentStoreProvider).save(tournament);
     ref.invalidate(localTournamentsProvider);
     state = tournament;
@@ -47,7 +50,9 @@ class LocalTournamentController extends Notifier<DraftTournament?> {
     if (current == null) {
       return;
     }
-    final updated = ref.read(tournamentEngineProvider).startNextRound(current);
+    final updated = ref
+        .read(tournamentEngineProvider)
+        .startNextRound(current.copyWith(autoAdvancePaused: false));
     await _save(updated);
   }
 
@@ -59,7 +64,63 @@ class LocalTournamentController extends Notifier<DraftTournament?> {
     if (current == null) {
       return;
     }
-    final updated = ref.read(tournamentEngineProvider).recordResult(
+    var updated = ref
+        .read(tournamentEngineProvider)
+        .recordResult(tournament: current, matchId: matchId, result: result);
+    if (!updated.autoAdvancePaused &&
+        !updated.config.format.hasTopCut &&
+        updated.rounds.isNotEmpty &&
+        updated.rounds.last.isComplete) {
+      updated = ref.read(tournamentEngineProvider).startNextRound(updated);
+    }
+    await _save(updated);
+  }
+
+  Future<void> goBackRound() async {
+    final current = state;
+    if (current == null ||
+        current.phase != TournamentPhase.swiss ||
+        current.rounds.length <= 1) {
+      return;
+    }
+    final previousRounds = current.rounds
+        .take(current.rounds.length - 1)
+        .toList();
+    final targetRound = previousRounds.last;
+    previousRounds[previousRounds.length - 1] = targetRound.copyWith(
+      finalized: false,
+    );
+    final updated = current.copyWith(
+      rounds: previousRounds,
+      status: TournamentStatus.active,
+      autoAdvancePaused: true,
+      updatedAt: DateTime.now(),
+    );
+    await _save(updated);
+  }
+
+  Future<void> dropPlayer(String playerId) async {
+    final current = state;
+    if (current == null) {
+      return;
+    }
+    final updated = ref
+        .read(tournamentEngineProvider)
+        .dropPlayer(tournament: current, playerId: playerId);
+    await _save(updated);
+  }
+
+  Future<void> recordTopCutResult({
+    required String matchId,
+    required MatchResult result,
+  }) async {
+    final current = state;
+    if (current == null) {
+      return;
+    }
+    final updated = ref
+        .read(tournamentEngineProvider)
+        .recordTopCutResult(
           tournament: current,
           matchId: matchId,
           result: result,
@@ -68,11 +129,23 @@ class LocalTournamentController extends Notifier<DraftTournament?> {
   }
 
   Future<void> finalize() async {
-    final current = state;
+    var current = state;
     if (current == null) {
       return;
     }
-    final updated = ref.read(tournamentEngineProvider).finalizeTournament(current);
+    if (current.rounds.length > 1 &&
+        current.rounds.last.matches.every(
+          (match) => match.isBye || !match.result.isComplete,
+        )) {
+      current = current.copyWith(
+        rounds: current.rounds.take(current.rounds.length - 1).toList(),
+        autoAdvancePaused: true,
+        updatedAt: DateTime.now(),
+      );
+    }
+    final updated = ref
+        .read(tournamentEngineProvider)
+        .finalizeTournament(current);
     await _save(updated);
   }
 
@@ -85,5 +158,5 @@ class LocalTournamentController extends Notifier<DraftTournament?> {
 
 final localTournamentControllerProvider =
     NotifierProvider<LocalTournamentController, DraftTournament?>(
-  LocalTournamentController.new,
-);
+      LocalTournamentController.new,
+    );

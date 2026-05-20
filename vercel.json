@@ -30,6 +30,14 @@
       "destination": "/api/tournament-ticket.js?action=:action"
     },
     {
+      "source": "/api/wallet-auth/nonce",
+      "destination": "/api/wallet-auth-nonce.js"
+    },
+    {
+      "source": "/api/wallet-auth/verify",
+      "destination": "/api/wallet-auth-verify.js"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

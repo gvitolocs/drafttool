@@ -3,7 +3,13 @@ import 'dart:convert';
 enum DraftGame {
   pokemon('Pokemon'),
   magic('Magic'),
-  yugioh('Yu-Gi-Oh');
+  yugioh('Yu-Gi-Oh'),
+  onePiece('One Piece'),
+  lorcana('Lorcana'),
+  fleshAndBlood('Flesh and Blood'),
+  digimon('Digimon'),
+  dragonBall('Dragon Ball'),
+  starWarsUnlimited('Star Wars Unlimited');
 
   const DraftGame(this.label);
 
@@ -12,6 +18,7 @@ enum DraftGame {
 
 enum TournamentFormat {
   bestOfOne('BO1', 1, false),
+  bestOfOneTopCut('BO1 + Top Cut', 1, true),
   bestOfThree('BO3', 3, false),
   bestOfThreeTopCut('BO3 + Top Cut', 3, true);
 
@@ -23,6 +30,8 @@ enum TournamentFormat {
 }
 
 enum TournamentMode { offline, online }
+
+enum TournamentPhase { swiss, topCut }
 
 enum TournamentStatus { setup, active, finalized, canceled }
 
@@ -45,14 +54,25 @@ class TournamentPlayer {
   final String? username;
   final bool dropped;
 
+  TournamentPlayer copyWith({bool? dropped}) {
+    return TournamentPlayer(
+      id: id,
+      name: name,
+      seed: seed,
+      uid: uid,
+      username: username,
+      dropped: dropped ?? this.dropped,
+    );
+  }
+
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'name': name,
-        'seed': seed,
-        'uid': uid,
-        'username': username,
-        'dropped': dropped,
-      };
+    'id': id,
+    'name': name,
+    'seed': seed,
+    'uid': uid,
+    'username': username,
+    'dropped': dropped,
+  };
 
   factory TournamentPlayer.fromJson(Map<String, dynamic> json) {
     return TournamentPlayer(
@@ -72,6 +92,7 @@ class MatchResult {
     this.playerAWins = 0,
     this.playerBWins = 0,
     this.draws = 0,
+    this.gameOutcomes = const [],
     this.reportedBy,
   });
 
@@ -79,17 +100,19 @@ class MatchResult {
   final int playerAWins;
   final int playerBWins;
   final int draws;
+  final List<MatchOutcome> gameOutcomes;
   final String? reportedBy;
 
   bool get isComplete => outcome != MatchOutcome.unreported;
 
   Map<String, dynamic> toJson() => {
-        'outcome': outcome.name,
-        'playerAWins': playerAWins,
-        'playerBWins': playerBWins,
-        'draws': draws,
-        'reportedBy': reportedBy,
-      };
+    'outcome': outcome.name,
+    'playerAWins': playerAWins,
+    'playerBWins': playerBWins,
+    'draws': draws,
+    'gameOutcomes': gameOutcomes.map((outcome) => outcome.name).toList(),
+    'reportedBy': reportedBy,
+  };
 
   factory MatchResult.fromJson(Map<String, dynamic>? json) {
     if (json == null) {
@@ -100,7 +123,52 @@ class MatchResult {
       playerAWins: json['playerAWins'] as int? ?? 0,
       playerBWins: json['playerBWins'] as int? ?? 0,
       draws: json['draws'] as int? ?? 0,
+      gameOutcomes: (json['gameOutcomes'] as List<dynamic>? ?? [])
+          .map((value) => MatchOutcome.values.byName(value as String))
+          .toList(),
       reportedBy: json['reportedBy'] as String?,
+    );
+  }
+
+  MatchResult withGameOutcome({
+    required int gameIndex,
+    required MatchOutcome gameOutcome,
+    required int winsRequired,
+    required int maxGames,
+  }) {
+    final updatedGames = List<MatchOutcome>.from(gameOutcomes);
+    while (updatedGames.length <= gameIndex) {
+      updatedGames.add(MatchOutcome.unreported);
+    }
+    updatedGames[gameIndex] = gameOutcome;
+
+    final playerAWins = updatedGames
+        .where((outcome) => outcome == MatchOutcome.playerA)
+        .length;
+    final playerBWins = updatedGames
+        .where((outcome) => outcome == MatchOutcome.playerB)
+        .length;
+    final draws = updatedGames
+        .where((outcome) => outcome == MatchOutcome.draw)
+        .length;
+    final reportedGames = updatedGames
+        .where((outcome) => outcome != MatchOutcome.unreported)
+        .length;
+    final outcome = playerAWins >= winsRequired
+        ? MatchOutcome.playerA
+        : playerBWins >= winsRequired
+        ? MatchOutcome.playerB
+        : reportedGames >= maxGames
+        ? MatchOutcome.draw
+        : MatchOutcome.unreported;
+
+    return MatchResult(
+      outcome: outcome,
+      playerAWins: playerAWins,
+      playerBWins: playerBWins,
+      draws: draws,
+      gameOutcomes: updatedGames,
+      reportedBy: reportedBy,
     );
   }
 }
@@ -146,15 +214,15 @@ class TournamentMatch {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'roundNumber': roundNumber,
-        'tableNumber': tableNumber,
-        'playerAId': playerAId,
-        'playerBId': playerBId,
-        'result': result.toJson(),
-        'conflict': conflict,
-        'locked': locked,
-      };
+    'id': id,
+    'roundNumber': roundNumber,
+    'tableNumber': tableNumber,
+    'playerAId': playerAId,
+    'playerBId': playerBId,
+    'result': result.toJson(),
+    'conflict': conflict,
+    'locked': locked,
+  };
 
   factory TournamentMatch.fromJson(Map<String, dynamic> json) {
     return TournamentMatch(
@@ -183,10 +251,7 @@ class TournamentRound {
 
   bool get isComplete => matches.every((match) => match.result.isComplete);
 
-  TournamentRound copyWith({
-    List<TournamentMatch>? matches,
-    bool? finalized,
-  }) {
+  TournamentRound copyWith({List<TournamentMatch>? matches, bool? finalized}) {
     return TournamentRound(
       number: number,
       matches: matches ?? this.matches,
@@ -195,16 +260,18 @@ class TournamentRound {
   }
 
   Map<String, dynamic> toJson() => {
-        'number': number,
-        'matches': matches.map((match) => match.toJson()).toList(),
-        'finalized': finalized,
-      };
+    'number': number,
+    'matches': matches.map((match) => match.toJson()).toList(),
+    'finalized': finalized,
+  };
 
   factory TournamentRound.fromJson(Map<String, dynamic> json) {
     return TournamentRound(
       number: json['number'] as int,
       matches: (json['matches'] as List<dynamic>? ?? [])
-          .map((value) => TournamentMatch.fromJson(value as Map<String, dynamic>))
+          .map(
+            (value) => TournamentMatch.fromJson(value as Map<String, dynamic>),
+          )
           .toList(),
       finalized: json['finalized'] as bool? ?? false,
     );
@@ -217,10 +284,7 @@ class PayoutSplit {
   final int place;
   final int percent;
 
-  Map<String, dynamic> toJson() => {
-        'place': place,
-        'percent': percent,
-      };
+  Map<String, dynamic> toJson() => {'place': place, 'percent': percent};
 
   factory PayoutSplit.fromJson(Map<String, dynamic> json) {
     return PayoutSplit(
@@ -250,14 +314,14 @@ class TournamentConfig {
   final int topCutSize;
 
   Map<String, dynamic> toJson() => {
-        'title': title,
-        'game': game.name,
-        'format': format.name,
-        'mode': mode.name,
-        'ticketPkn': ticketPkn,
-        'payoutSplits': payoutSplits.map((split) => split.toJson()).toList(),
-        'topCutSize': topCutSize,
-      };
+    'title': title,
+    'game': game.name,
+    'format': format.name,
+    'mode': mode.name,
+    'ticketPkn': ticketPkn,
+    'payoutSplits': payoutSplits.map((split) => split.toJson()).toList(),
+    'topCutSize': topCutSize,
+  };
 
   factory TournamentConfig.fromJson(Map<String, dynamic> json) {
     return TournamentConfig(
@@ -309,17 +373,100 @@ class StandingRow {
 class EliminationMatch {
   const EliminationMatch({
     required this.id,
-    required this.roundLabel,
     required this.tableNumber,
     required this.playerAId,
     required this.playerBId,
+    this.result = const MatchResult(outcome: MatchOutcome.unreported),
+    this.locked = false,
   });
 
   final String id;
-  final String roundLabel;
   final int tableNumber;
   final String playerAId;
   final String playerBId;
+  final MatchResult result;
+  final bool locked;
+
+  bool get isComplete => result.isComplete;
+
+  String? get winnerId {
+    return switch (result.outcome) {
+      MatchOutcome.playerA => playerAId,
+      MatchOutcome.playerB => playerBId,
+      _ => null,
+    };
+  }
+
+  EliminationMatch copyWith({MatchResult? result, bool? locked}) {
+    return EliminationMatch(
+      id: id,
+      tableNumber: tableNumber,
+      playerAId: playerAId,
+      playerBId: playerBId,
+      result: result ?? this.result,
+      locked: locked ?? this.locked,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'tableNumber': tableNumber,
+    'playerAId': playerAId,
+    'playerBId': playerBId,
+    'result': result.toJson(),
+    'locked': locked,
+  };
+
+  factory EliminationMatch.fromJson(Map<String, dynamic> json) {
+    return EliminationMatch(
+      id: json['id'] as String,
+      tableNumber: json['tableNumber'] as int,
+      playerAId: json['playerAId'] as String,
+      playerBId: json['playerBId'] as String,
+      result: MatchResult.fromJson(json['result'] as Map<String, dynamic>?),
+      locked: json['locked'] as bool? ?? false,
+    );
+  }
+}
+
+class EliminationRound {
+  const EliminationRound({
+    required this.number,
+    required this.label,
+    required this.matches,
+  });
+
+  final int number;
+  final String label;
+  final List<EliminationMatch> matches;
+
+  bool get isComplete => matches.every((match) => match.isComplete);
+
+  EliminationRound copyWith({List<EliminationMatch>? matches}) {
+    return EliminationRound(
+      number: number,
+      label: label,
+      matches: matches ?? this.matches,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'number': number,
+    'label': label,
+    'matches': matches.map((match) => match.toJson()).toList(),
+  };
+
+  factory EliminationRound.fromJson(Map<String, dynamic> json) {
+    return EliminationRound(
+      number: json['number'] as int,
+      label: json['label'] as String,
+      matches: (json['matches'] as List<dynamic>? ?? [])
+          .map(
+            (value) => EliminationMatch.fromJson(value as Map<String, dynamic>),
+          )
+          .toList(),
+    );
+  }
 }
 
 class DraftTournament {
@@ -328,7 +475,10 @@ class DraftTournament {
     required this.config,
     required this.players,
     required this.rounds,
+    this.topCutRounds = const [],
+    this.phase = TournamentPhase.swiss,
     this.status = TournamentStatus.setup,
+    this.autoAdvancePaused = false,
     this.createdAt,
     this.updatedAt,
   });
@@ -337,7 +487,10 @@ class DraftTournament {
   final TournamentConfig config;
   final List<TournamentPlayer> players;
   final List<TournamentRound> rounds;
+  final List<EliminationRound> topCutRounds;
+  final TournamentPhase phase;
   final TournamentStatus status;
+  final bool autoAdvancePaused;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -347,7 +500,10 @@ class DraftTournament {
     TournamentConfig? config,
     List<TournamentPlayer>? players,
     List<TournamentRound>? rounds,
+    List<EliminationRound>? topCutRounds,
+    TournamentPhase? phase,
     TournamentStatus? status,
+    bool? autoAdvancePaused,
     DateTime? updatedAt,
   }) {
     return DraftTournament(
@@ -355,36 +511,54 @@ class DraftTournament {
       config: config ?? this.config,
       players: players ?? this.players,
       rounds: rounds ?? this.rounds,
+      topCutRounds: topCutRounds ?? this.topCutRounds,
+      phase: phase ?? this.phase,
       status: status ?? this.status,
+      autoAdvancePaused: autoAdvancePaused ?? this.autoAdvancePaused,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'config': config.toJson(),
-        'players': players.map((player) => player.toJson()).toList(),
-        'rounds': rounds.map((round) => round.toJson()).toList(),
-        'status': status.name,
-        'createdAt': createdAt?.toIso8601String(),
-        'updatedAt': updatedAt?.toIso8601String(),
-      };
+    'id': id,
+    'config': config.toJson(),
+    'players': players.map((player) => player.toJson()).toList(),
+    'rounds': rounds.map((round) => round.toJson()).toList(),
+    'topCutRounds': topCutRounds.map((round) => round.toJson()).toList(),
+    'phase': phase.name,
+    'status': status.name,
+    'autoAdvancePaused': autoAdvancePaused,
+    'createdAt': createdAt?.toIso8601String(),
+    'updatedAt': updatedAt?.toIso8601String(),
+  };
 
   String encode() => jsonEncode(toJson());
 
   factory DraftTournament.fromJson(Map<String, dynamic> json) {
     return DraftTournament(
       id: json['id'] as String,
-      config:
-          TournamentConfig.fromJson(json['config'] as Map<String, dynamic>),
+      config: TournamentConfig.fromJson(json['config'] as Map<String, dynamic>),
       players: (json['players'] as List<dynamic>? ?? [])
-          .map((value) => TournamentPlayer.fromJson(value as Map<String, dynamic>))
+          .map(
+            (value) => TournamentPlayer.fromJson(value as Map<String, dynamic>),
+          )
           .toList(),
       rounds: (json['rounds'] as List<dynamic>? ?? [])
-          .map((value) => TournamentRound.fromJson(value as Map<String, dynamic>))
+          .map(
+            (value) => TournamentRound.fromJson(value as Map<String, dynamic>),
+          )
           .toList(),
+      topCutRounds: (json['topCutRounds'] as List<dynamic>? ?? [])
+          .map(
+            (value) => EliminationRound.fromJson(value as Map<String, dynamic>),
+          )
+          .toList(),
+      phase: TournamentPhase.values.byName(
+        json['phase'] as String? ?? TournamentPhase.swiss.name,
+      ),
       status: TournamentStatus.values.byName(json['status'] as String),
+      autoAdvancePaused: json['autoAdvancePaused'] as bool? ?? false,
       createdAt: _readDate(json['createdAt']),
       updatedAt: _readDate(json['updatedAt']),
     );

@@ -4,11 +4,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../models/tournament_models.dart';
 
 class OnlineTournamentService {
-  OnlineTournamentService({
-    FirebaseFirestore? firestore,
-    FirebaseAuth? auth,
-  })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _auth = auth ?? FirebaseAuth.instance;
+  OnlineTournamentService({FirebaseFirestore? firestore, FirebaseAuth? auth})
+    : _firestore = firestore ?? FirebaseFirestore.instance,
+      _auth = auth ?? FirebaseAuth.instance;
 
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
@@ -27,9 +25,11 @@ class OnlineTournamentService {
     return _tournaments
         .where('participantUids', arrayContains: user.uid)
         .snapshots()
-        .map((snapshot) => snapshot.docs
-            .map((doc) => {'id': doc.id, ...doc.data()})
-            .toList());
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => {'id': doc.id, ...doc.data()})
+              .toList(),
+        );
   }
 
   Future<String> createTournament({
@@ -48,7 +48,9 @@ class OnlineTournamentService {
       'format': config.format.name,
       'status': TournamentStatus.setup.name,
       'ticketPkn': config.ticketPkn,
-      'payoutSplits': config.payoutSplits.map((split) => split.toJson()).toList(),
+      'payoutSplits': config.payoutSplits
+          .map((split) => split.toJson())
+          .toList(),
       'participantUids': [user.uid],
       'inviteUsernames': inviteUsernames
           .map((username) => username.trim().toLowerCase())
@@ -98,9 +100,9 @@ class OnlineTournamentService {
         .collection('reports')
         .doc(user.uid)
         .set({
-      ...result.toJson(),
-      'reportedBy': user.uid,
-      'reportedAt': FieldValue.serverTimestamp(),
-    });
+          ...result.toJson(),
+          'reportedBy': user.uid,
+          'reportedAt': FieldValue.serverTimestamp(),
+        });
   }
 }

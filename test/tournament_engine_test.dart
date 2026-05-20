@@ -51,9 +51,15 @@ void main() {
         ),
       );
 
-      expect(tournament.rounds.single.matches.where((m) => m.isBye), hasLength(1));
       expect(
-        tournament.rounds.single.matches.singleWhere((m) => m.isBye).result.outcome,
+        tournament.rounds.single.matches.where((m) => m.isBye),
+        hasLength(1),
+      );
+      expect(
+        tournament.rounds.single.matches
+            .singleWhere((m) => m.isBye)
+            .result
+            .outcome,
         MatchOutcome.bye,
       );
     });
@@ -115,7 +121,7 @@ void main() {
       final tournament = engine.createOfflineTournament(
         title: 'Top cut',
         game: DraftGame.pokemon,
-        format: TournamentFormat.bestOfThreeTopCut,
+        format: TournamentFormat.bestOfOneTopCut,
         playerNames: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
       );
 
@@ -123,6 +129,175 @@ void main() {
       expect(topCut, hasLength(4));
       expect(topCut.first.playerAId, 'player-1');
       expect(topCut.first.playerBId, 'player-8');
+    });
+
+    test(
+      'top cut formats move from Swiss into playable elimination rounds',
+      () {
+        final engine = TournamentEngine();
+        var tournament = engine.startNextRound(
+          engine.createOfflineTournament(
+            title: 'Playable cut',
+            game: DraftGame.pokemon,
+            format: TournamentFormat.bestOfOneTopCut,
+            playerNames: ['A', 'B', 'C', 'D'],
+          ),
+        );
+
+        for (final match in tournament.rounds.single.matches) {
+          tournament = engine.recordResult(
+            tournament: tournament,
+            matchId: match.id,
+            result: const MatchResult(
+              outcome: MatchOutcome.playerA,
+              playerAWins: 1,
+            ),
+          );
+        }
+
+        tournament = engine.finalizeTournament(tournament);
+        expect(tournament.status, TournamentStatus.active);
+        expect(tournament.phase, TournamentPhase.topCut);
+        expect(tournament.topCutRounds.single.matches, hasLength(2));
+
+        for (final match in tournament.topCutRounds.single.matches) {
+          tournament = engine.recordTopCutResult(
+            tournament: tournament,
+            matchId: match.id,
+            result: const MatchResult(
+              outcome: MatchOutcome.playerA,
+              playerAWins: 1,
+            ),
+          );
+        }
+
+        expect(tournament.status, TournamentStatus.active);
+        expect(tournament.topCutRounds, hasLength(2));
+        expect(tournament.topCutRounds.last.label, 'Final');
+
+        final finalMatch = tournament.topCutRounds.last.matches.single;
+        tournament = engine.recordTopCutResult(
+          tournament: tournament,
+          matchId: finalMatch.id,
+          result: const MatchResult(
+            outcome: MatchOutcome.playerA,
+            playerAWins: 1,
+          ),
+        );
+
+        expect(tournament.status, TournamentStatus.finalized);
+      },
+    );
+
+    test('dropped players are not paired in future Swiss rounds', () {
+      final engine = TournamentEngine();
+      var tournament = engine.startNextRound(
+        engine.createOfflineTournament(
+          title: 'Drop event',
+          game: DraftGame.pokemon,
+          format: TournamentFormat.bestOfOneTopCut,
+          playerNames: ['A', 'B', 'C', 'D'],
+        ),
+      );
+      final droppedId = tournament.rounds.single.matches.first.playerAId;
+      tournament = engine.dropPlayer(
+        tournament: tournament,
+        playerId: droppedId,
+      );
+
+      for (final match in tournament.rounds.single.matches) {
+        tournament = engine.recordResult(
+          tournament: tournament,
+          matchId: match.id,
+          result: const MatchResult(
+            outcome: MatchOutcome.playerA,
+            playerAWins: 1,
+          ),
+        );
+      }
+
+      tournament = engine.startNextRound(tournament);
+      expect(
+        tournament.rounds.last.matches.expand(
+          (match) => [
+            match.playerAId,
+            if (match.playerBId != null) match.playerBId!,
+          ],
+        ),
+        isNot(contains(droppedId)),
+      );
+    });
+
+    test('can remove the latest round and reopen the previous one', () {
+      final engine = TournamentEngine();
+      var tournament = engine.startNextRound(
+        engine.createOfflineTournament(
+          title: 'Undo event',
+          game: DraftGame.pokemon,
+          format: TournamentFormat.bestOfThree,
+          playerNames: ['A', 'B', 'C', 'D'],
+        ),
+      );
+
+      for (final match in tournament.rounds.single.matches) {
+        tournament = engine.recordResult(
+          tournament: tournament,
+          matchId: match.id,
+          result: const MatchResult(outcome: MatchOutcome.playerA),
+        );
+      }
+      tournament = engine.startNextRound(tournament);
+
+      final previousRounds = tournament.rounds
+          .take(tournament.rounds.length - 1)
+          .toList();
+      final targetRound = previousRounds.last;
+      previousRounds[previousRounds.length - 1] = targetRound.copyWith(
+        finalized: false,
+        matches: [
+          for (final match in targetRound.matches)
+            match.copyWith(
+              result: const MatchResult(outcome: MatchOutcome.unreported),
+              locked: false,
+            ),
+        ],
+      );
+      final reopened = tournament.copyWith(rounds: previousRounds);
+
+      expect(reopened.rounds, hasLength(1));
+      expect(reopened.rounds.single.isComplete, isFalse);
+      expect(reopened.rounds.single.matches.every((m) => !m.locked), isTrue);
+    });
+
+    test('BO3 match result stores per-game wins for tiebreakers', () {
+      final result = const MatchResult(outcome: MatchOutcome.unreported)
+          .withGameOutcome(
+            gameIndex: 0,
+            gameOutcome: MatchOutcome.playerA,
+            winsRequired: 2,
+            maxGames: 3,
+          )
+          .withGameOutcome(
+            gameIndex: 1,
+            gameOutcome: MatchOutcome.playerB,
+            winsRequired: 2,
+            maxGames: 3,
+          )
+          .withGameOutcome(
+            gameIndex: 2,
+            gameOutcome: MatchOutcome.playerA,
+            winsRequired: 2,
+            maxGames: 3,
+          );
+
+      expect(result.outcome, MatchOutcome.playerA);
+      expect(result.playerAWins, 2);
+      expect(result.playerBWins, 1);
+      expect(result.gameOutcomes, [
+        MatchOutcome.playerA,
+        MatchOutcome.playerB,
+        MatchOutcome.playerA,
+      ]);
     });
   });
 }

@@ -49,6 +49,9 @@ class TournamentEngine {
   }
 
   DraftTournament startNextRound(DraftTournament tournament) {
+    if (tournament.phase == TournamentPhase.topCut) {
+      return startNextTopCutRound(tournament);
+    }
     if (tournament.rounds.isNotEmpty && !tournament.rounds.last.isComplete) {
       throw StateError('Finish the current round before pairing the next one.');
     }
@@ -56,10 +59,11 @@ class TournamentEngine {
     final standings = calculateStandings(tournament);
     final orderedPlayers = tournament.rounds.isEmpty
         ? (List<TournamentPlayer>.from(tournament.players)
-          ..sort((a, b) => a.seed.compareTo(b.seed)))
+            ..sort((a, b) => a.seed.compareTo(b.seed)))
         : standings.map((row) => row.player).toList();
-    final activePlayers =
-        orderedPlayers.where((player) => !player.dropped).toList();
+    final activePlayers = orderedPlayers
+        .where((player) => !player.dropped)
+        .toList();
     if (activePlayers.length < 2) {
       throw StateError('At least two active players are required.');
     }
@@ -81,10 +85,7 @@ class TournamentEngine {
           playerAId: pairing.$1.id,
           playerBId: pairing.$2?.id,
           result: pairing.$2 == null
-              ? const MatchResult(
-                  outcome: MatchOutcome.bye,
-                  playerAWins: 1,
-                )
+              ? const MatchResult(outcome: MatchOutcome.bye, playerAWins: 1)
               : const MatchResult(outcome: MatchOutcome.unreported),
           locked: pairing.$2 == null,
         ),
@@ -100,6 +101,7 @@ class TournamentEngine {
         ),
         TournamentRound(number: roundNumber, matches: matches),
       ],
+      phase: TournamentPhase.swiss,
       status: TournamentStatus.active,
       updatedAt: DateTime.now(),
     );
@@ -122,11 +124,35 @@ class TournamentEngine {
     return tournament.copyWith(rounds: rounds, updatedAt: DateTime.now());
   }
 
+  DraftTournament dropPlayer({
+    required DraftTournament tournament,
+    required String playerId,
+  }) {
+    if (tournament.phase != TournamentPhase.swiss) {
+      throw StateError('Players can only drop during Swiss rounds.');
+    }
+    return tournament.copyWith(
+      players: [
+        for (final player in tournament.players)
+          player.id == playerId ? player.copyWith(dropped: true) : player,
+      ],
+      updatedAt: DateTime.now(),
+    );
+  }
+
   DraftTournament finalizeTournament(DraftTournament tournament) {
     if (tournament.rounds.isEmpty) {
       throw StateError('Start at least one round before finalizing.');
     }
-    if (!tournament.rounds.last.isComplete) {
+    if (tournament.config.format.hasTopCut) {
+      if (tournament.phase != TournamentPhase.topCut) {
+        return startTopCut(tournament);
+      }
+      if (tournament.topCutRounds.isEmpty ||
+          !tournament.topCutRounds.last.isComplete) {
+        throw StateError('Finish all top cut matches before finalizing.');
+      }
+    } else if (!tournament.rounds.last.isComplete) {
       throw StateError('Finish all matches before finalizing.');
     }
     return tournament.copyWith(
@@ -208,34 +234,145 @@ class TournamentEngine {
         gameWinPercentage: stat.gameWinPercentage,
         opponentGameWinPercentage: opponentGameWinPercentage,
       );
-    }).toList()
-      ..sort(_compareStandings);
+    }).toList()..sort(_compareStandings);
 
-    return [
-      for (var i = 0; i < rows.length; i += 1)
-        rows[i].ranked(i + 1),
-    ];
+    return [for (var i = 0; i < rows.length; i += 1) rows[i].ranked(i + 1)];
   }
 
-  List<EliminationMatch> buildTopCut(
-    DraftTournament tournament, {
-    int? size,
+  int recommendedTopCutSize(int playerCount) {
+    if (playerCount < 4) {
+      return 2;
+    }
+    if (playerCount < 17) {
+      return 4;
+    }
+    return 8;
+  }
+
+  DraftTournament startTopCut(DraftTournament tournament, {int? size}) {
+    if (!tournament.config.format.hasTopCut) {
+      throw StateError('This tournament format has no top cut.');
+    }
+    if (tournament.rounds.isEmpty || !tournament.rounds.last.isComplete) {
+      throw StateError('Finish Swiss before starting top cut.');
+    }
+    if (tournament.topCutRounds.isNotEmpty) {
+      return tournament.copyWith(phase: TournamentPhase.topCut);
+    }
+    final matches = buildTopCut(tournament, size: size);
+    if (matches.isEmpty) {
+      throw StateError('At least two players are required for top cut.');
+    }
+    return tournament.copyWith(
+      phase: TournamentPhase.topCut,
+      topCutRounds: [
+        EliminationRound(
+          number: 1,
+          label: _topCutRoundLabel(matches.length * 2),
+          matches: matches,
+        ),
+      ],
+      status: TournamentStatus.active,
+      autoAdvancePaused: true,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  DraftTournament startNextTopCutRound(DraftTournament tournament) {
+    if (tournament.phase != TournamentPhase.topCut) {
+      throw StateError('Top cut has not started.');
+    }
+    if (tournament.topCutRounds.isEmpty) {
+      return startTopCut(tournament);
+    }
+    final currentRound = tournament.topCutRounds.last;
+    if (!currentRound.isComplete) {
+      throw StateError('Finish the current top cut round first.');
+    }
+    final winners = currentRound.matches
+        .map((match) => match.winnerId)
+        .whereType<String>()
+        .toList();
+    if (winners.length < 2) {
+      return tournament.copyWith(
+        status: TournamentStatus.finalized,
+        updatedAt: DateTime.now(),
+      );
+    }
+    final roundNumber = tournament.topCutRounds.length + 1;
+    final matches = <EliminationMatch>[];
+    for (var i = 0; i < winners.length; i += 2) {
+      matches.add(
+        EliminationMatch(
+          id: 'topcut-r${roundNumber}m${matches.length + 1}',
+          tableNumber: matches.length + 1,
+          playerAId: winners[i],
+          playerBId: winners[i + 1],
+        ),
+      );
+    }
+    return tournament.copyWith(
+      topCutRounds: [
+        ...tournament.topCutRounds,
+        EliminationRound(
+          number: roundNumber,
+          label: _topCutRoundLabel(winners.length),
+          matches: matches,
+        ),
+      ],
+      autoAdvancePaused: true,
+      updatedAt: DateTime.now(),
+    );
+  }
+
+  DraftTournament recordTopCutResult({
+    required DraftTournament tournament,
+    required String matchId,
+    required MatchResult result,
   }) {
+    final rounds = tournament.topCutRounds.map((round) {
+      final matches = round.matches.map((match) {
+        if (match.id != matchId) {
+          return match;
+        }
+        return match.copyWith(result: result, locked: true);
+      }).toList();
+      return round.copyWith(matches: matches);
+    }).toList();
+    var updated = tournament.copyWith(
+      topCutRounds: rounds,
+      updatedAt: DateTime.now(),
+    );
+    if (rounds.isNotEmpty && rounds.last.isComplete) {
+      updated = startNextTopCutRound(updated);
+    }
+    return updated;
+  }
+
+  List<EliminationMatch> buildTopCut(DraftTournament tournament, {int? size}) {
     final standings = calculateStandings(tournament);
-    final cutSize = min(size ?? tournament.config.topCutSize, standings.length);
+    final requestedSize =
+        size ??
+        min(
+          tournament.config.topCutSize,
+          recommendedTopCutSize(tournament.players.length),
+        );
+    final cutSize = min(requestedSize, standings.length);
     final normalizedSize = _largestPowerOfTwo(cutSize);
     if (normalizedSize < 2) {
       return const [];
     }
-    final seeds = standings.take(normalizedSize).map((row) => row.player).toList();
+    final seeds = standings
+        .take(normalizedSize)
+        .map((row) => row.player)
+        .toList();
     final matches = <EliminationMatch>[];
     for (var i = 0; i < normalizedSize ~/ 2; i += 1) {
       final highSeed = seeds[i];
       final lowSeed = seeds[normalizedSize - 1 - i];
       matches.add(
         EliminationMatch(
-          id: 'topcut-${i + 1}',
-          roundLabel: _topCutRoundLabel(normalizedSize),
+          id: 'topcut-r1m${i + 1}',
           tableNumber: i + 1,
           playerAId: highSeed.id,
           playerBId: lowSeed.id,
@@ -264,7 +401,8 @@ class TournamentEngine {
     while (queue.isNotEmpty) {
       final first = queue.removeAt(0);
       var opponentIndex = queue.indexWhere(
-        (candidate) => !previousPairings.contains(_pairingKey(first.id, candidate.id)),
+        (candidate) =>
+            !previousPairings.contains(_pairingKey(first.id, candidate.id)),
       );
       if (opponentIndex < 0) {
         opponentIndex = 0;

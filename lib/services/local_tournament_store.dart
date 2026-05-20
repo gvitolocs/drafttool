@@ -9,9 +9,7 @@ class LocalTournamentStore {
 
   Future<List<DraftTournament>> loadAll() async {
     final box = await _box();
-    final tournaments = box.values
-        .map(DraftTournament.decode)
-        .toList()
+    final tournaments = box.values.map(DraftTournament.decode).toList()
       ..sort((a, b) {
         final aDate = a.updatedAt ?? a.createdAt ?? DateTime(0);
         final bDate = b.updatedAt ?? b.createdAt ?? DateTime(0);
