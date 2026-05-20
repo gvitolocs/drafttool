@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "check": "node --check api/tournament-ticket.js && node --check api/_tournament_tickets.js && node --check api/_firebase.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.6.0"
+  }
+}

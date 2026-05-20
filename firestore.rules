@@ -1,0 +1,72 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function owns(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    match /drafttool_tournaments/{tournamentId} {
+      allow read: if signedIn()
+        && request.auth.uid in resource.data.participantUids;
+      allow create: if signedIn()
+        && request.resource.data.creatorUid == request.auth.uid
+        && request.auth.uid in request.resource.data.participantUids
+        && request.resource.data.ticketPkn is int
+        && request.resource.data.ticketPkn >= 0;
+      allow update: if signedIn()
+        && resource.data.creatorUid == request.auth.uid
+        && request.resource.data.creatorUid == resource.data.creatorUid;
+      allow delete: if false;
+
+      match /players/{playerId} {
+        allow read: if signedIn();
+        allow create, update: if signedIn()
+          && (request.auth.uid == playerId
+            || get(/databases/$(database)/documents/drafttool_tournaments/$(tournamentId)).data.creatorUid == request.auth.uid);
+        allow delete: if false;
+      }
+
+      match /rounds/{roundId}/matches/{matchId} {
+        allow read: if signedIn();
+        allow write: if signedIn()
+          && get(/databases/$(database)/documents/drafttool_tournaments/$(tournamentId)).data.creatorUid == request.auth.uid;
+
+        match /reports/{uid} {
+          allow read: if signedIn();
+          allow create, update: if owns(uid)
+            && request.resource.data.outcome in ['playerA', 'playerB', 'draw'];
+          allow delete: if false;
+        }
+      }
+    }
+
+    match /drafttool_invites/{inviteId} {
+      allow read: if signedIn()
+        && (resource.data.inviterUid == request.auth.uid
+          || resource.data.inviteeUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.inviterUid == request.auth.uid
+        && request.resource.data.status == 'pending';
+      allow update: if signedIn()
+        && resource.data.inviteeUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['status', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /balances/{uid} {
+      allow read: if owns(uid);
+      allow write: if false;
+    }
+
+    match /ledger_entries/{entryId} {
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+  }
+}
